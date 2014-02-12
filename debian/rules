@@ -1,7 +1,5 @@
 #!/usr/bin/make -f
 
-include /usr/share/quilt/quilt.make
-
 DEB_HOST_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
@@ -18,23 +16,27 @@ CFLAGS += -O2
 endif
 
 configure: configure-stamp
-configure-stamp: $(QUILT_STAMPFN)
+configure-stamp:
 	dh_testdir
 	CFLAGS="$(CFLAGS)" ac_cv_sys_long_file_names=yes \
 		./configure $(CONFFLAGS) --prefix=/usr --mandir=\$${prefix}/share/man
 	touch configure-stamp
 
-build: build-stamp
+build-indep:
+
+build build-arch: build-stamp
 build-stamp: configure-stamp
 	dh_testdir
 	$(MAKE)
-	$(MAKE) check
+	dh_auto_test
 	touch build-stamp
 
-clean: unpatch
+clean:
 	dh_testdir
+	# distclean wants these files
+	touch gl/m4/safe-read.m4 gl/m4/strnlen.m4
 	[ ! -f Makefile ] || $(MAKE) distclean
-	dh_clean build-stamp configure-stamp
+	dh_clean build-stamp configure-stamp gl/m4/safe-read.m4 gl/m4/strnlen.m4
 
 install: build
 	dh_testdir
@@ -63,4 +65,4 @@ binary-indep:
 
 binary: binary-indep binary-arch
 
-.PHONY: configure build clean install binary-arch binary-indep binary patch unpatch
+.PHONY: configure build build-arch build-indep clean install binary-arch binary-indep binary

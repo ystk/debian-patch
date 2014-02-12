@@ -1,3 +1,43 @@
+patch (2.6.1-3) unstable; urgency=low
+
+  * 3.0 (quilt).
+  * Fix Suggests broken in the last upload.
+
+ -- Christoph Berg <myon@debian.org>  Wed, 25 Jan 2012 15:00:41 +0100
+
+patch (2.6.1-2.1) unstable; urgency=low
+
+  * NMU with maintainer approval
+  * Set patch as Multi-Arch: foreign to allow use when cross-compiling
+
+ -- Riku Voipio <riku.voipio@linaro.org>  Mon, 16 Jan 2012 14:13:59 +0200
+
+patch (2.6.1-2) unstable; urgency=low
+
+  * Use dh_auto_test. Closes: #627196
+
+ -- Christoph Berg <myon@debian.org>  Fri, 20 May 2011 23:45:48 +0200
+
+patch (2.6.1-1) unstable; urgency=low
+
+  * New upstream version.
+    + Improved CR stripping heuristics. Closes: #484539
+    + Fixes: creates files and directories instead of asking for the file
+      location. Closes: #568248
+  * Remove lenny compatibility options -U --unified-reject-files and
+   --global-reject-file.
+  * Null update-version.sh file so it doesn't interfere with the git
+    repository the package is hosted in.
+
+ -- Christoph Berg <myon@debian.org>  Sun, 06 Feb 2011 20:19:30 +0100
+
+patch (2.6-3) unstable; urgency=low
+
+  * Enable -m short option for --merge as documented in help and manpage.
+    Closes: #597305.
+
+ -- Christoph Berg <myon@debian.org>  Wed, 22 Sep 2010 21:41:30 +0200
+
 patch (2.6-2) unstable; urgency=low
 
   * Update watch file.
