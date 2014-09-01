@@ -445,7 +445,8 @@ This option implies \fB\*=forward\fP and does not take the
 Interpret the patch file as a normal diff.
 .TP
 \fB\-N\fP  or  \fB\*=forward\fP
-Ignore patches that seem to be reversed or already applied.
+Ignore patches that seem to be reversed or already applied. It is only checked if
+the first hunk of a patch can be reversed.
 See also
 .BR \-R .
 .TP
@@ -586,6 +587,10 @@ Luckily, most patches add or change lines rather than delete them, so most
 reversed normal diffs begin with a delete, which fails, triggering
 the heuristic.)
 .TP
+\fB\*=read\-only=\fP\fIbehavior\fP
+Behave as requested when trying to modify a read-only file: \fBignore\fP the
+potential problem, \fBwarn\fP about it (the default), or \fBfail\fP.
+.TP
 \fB\*=reject\-format=\fP\fIformat\fP
 Produce reject files in the specified \fIformat\fP (either \fBcontext\fP or
 \fBunified\fP).  Without this option, rejected hunks come out in unified diff
@@ -594,6 +599,13 @@ diff form.
 .TP
 \fB\-s\fP  or  \fB\*=silent\fP  or  \fB\*=quiet\fP
 Work silently, unless an error occurs.
+.TP
+\fB\*=follow\-symlinks\fP
+When looking for input files, follow symbolic links.  Replaces the symbolic
+links, instead of modifying the files the symbolic links point to.  Git-style
+patches to symbolic links will no longer apply.  This option exists for
+backwards compatibility with previous versions of patch; its use is
+discouraged.
 .TP
 \fB\-t\fP  or  \fB\*=batch\fP
 Suppress questions like
@@ -608,12 +620,15 @@ they are.
 .TP
 \fB\-T\fP  or  \fB\*=set\-time\fP
 Set the modification and access times of patched files from time stamps
-given in context diff headers, assuming that the context diff headers
-use local time.  This option is not recommended, because patches using
-local time cannot easily be used by people in other time zones, and
-because local time stamps are ambiguous when local clocks move backwards
-during daylight-saving time adjustments.  Instead of using this option,
-generate patches with \s-1UTC\s0 and use the
+given in context diff headers.  Unless specified in the time stamps,
+assume that the context diff headers use local time.
+.Sp
+Use of this option with time stamps that do not include time zones is
+not recommended, because patches using local time cannot easily be used
+by people in other time zones, and because local time stamps are
+ambiguous when local clocks move backwards during daylight-saving time
+adjustments.  Make sure that time stamps include time zones, or generate
+patches with \s-1UTC\s0 and use the
 .B \-Z
 or
 .B \*=set\-utc
@@ -740,9 +755,9 @@ is
 .TP
 \fB\-Z\fP  or  \fB\*=set\-utc\fP
 Set the modification and access times of patched files from time stamps
-given in context diff headers, assuming that the context diff headers
-use Coordinated Universal Time (\s-1UTC\s0, often known as \s-1GMT\s0).
-Also see the
+given in context diff headers. Unless specified in the time stamps,
+assume that the context diff headers use Coordinated Universal Time
+(\s-1UTC\s0, often known as \s-1GMT\s0).  Also see the
 .B \-T
 or
 .B \*=set\-time

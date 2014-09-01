@@ -1,4 +1,4 @@
-# Copyright (C) 2009 Free Software Foundation, Inc.
+# Copyright (C) 2009, 2011-2012 Free Software Foundation, Inc.
 #
 # Copying and distribution of this file, with or without modification,
 # in any medium, are permitted without royalty provided the copyright
@@ -7,7 +7,6 @@
 . $srcdir/test-lib.sh
 
 require_cat
-require_diff
 use_local_patch
 use_tmpdir
 
@@ -34,11 +33,11 @@ EOF
 echo one > a
 
 check 'patch -o a.new a < a.diff' <<EOF
-patching file a
-patching file a
+patching file a.new (read from a)
+patching file a.new (read from a)
 EOF
 
 check 'cat a.new' <<EOF
 two
-four
+three
 EOF
