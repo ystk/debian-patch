@@ -1,6 +1,6 @@
 --- a/patch.man
 +++ b/patch.man
-@@ -263,9 +263,6 @@ mentioned previously.
+@@ -262,9 +262,6 @@ mentioned previously.
  Make backup files.
  That is, when patching a file,
  rename or copy the original instead of removing it.

@@ -1,9 +1,53 @@
-patch (2.6.1-3) unstable; urgency=low
+patch (2.7.1-6) unstable; urgency=medium
 
+  * Fix ed check during build (closes: #721429, #729132).
+
+ -- Laszlo Boszormenyi (GCS) <gcs@debian.org>  Sun, 10 Aug 2014 18:05:47 +0000
+
+patch (2.7.1-5) unstable; urgency=low
+
+  * Add watch file.
+
+  [ James Hunt <james.hunt@ubuntu.com> ]
+  * Fix segfault due to incorrect usage (closes: #742470).
+
+ -- Laszlo Boszormenyi (GCS) <gcs@debian.org>  Mon, 14 Apr 2014 18:31:53 +0200
+
+patch (2.7.1-4) unstable; urgency=low
+
+  * New maintainer (closes: #728664).
+  * Add manual last change date (closes: #674052).
+  * Update Standards-Version to 3.9.5 .
+
+ -- Laszlo Boszormenyi (GCS) <gcs@debian.org>  Mon, 04 Nov 2013 12:36:11 +0000
+
+patch (2.7.1-3) unstable; urgency=low
+
+  * Call 'ed' without a path. Closes: #714423.
+  * Update copyright for GPL v3. Closes: #664640.
+
+ -- Christoph Berg <myon@debian.org>  Sun, 30 Jun 2013 16:14:19 +0200
+
+patch (2.7.1-2) experimental; urgency=low
+
+  * Add PATH_MAX workaround for GNU/Hurd.
+
+ -- Christoph Berg <myon@debian.org>  Fri, 04 Jan 2013 11:08:47 +0100
+
+patch (2.7.1-1) experimental; urgency=low
+
+  * New upstream release.
+
+ -- Christoph Berg <myon@debian.org>  Thu, 03 Jan 2013 17:34:45 +0100
+
+patch (2.6.1.136-31a7-1) experimental; urgency=low
+
+  * New upstream snapshot.
+  * Use dh_auto_test. Closes: #627196
   * 3.0 (quilt).
   * Fix Suggests broken in the last upload.
 
- -- Christoph Berg <myon@debian.org>  Wed, 25 Jan 2012 15:00:41 +0100
+ -- Christoph Berg <myon@debian.org>  Wed, 25 Jan 2012 15:03:09 +0100
 
 patch (2.6.1-2.1) unstable; urgency=low
 
@@ -11,6 +55,38 @@ patch (2.6.1-2.1) unstable; urgency=low
   * Set patch as Multi-Arch: foreign to allow use when cross-compiling
 
  -- Riku Voipio <riku.voipio@linaro.org>  Mon, 16 Jan 2012 14:13:59 +0200
+
+patch (2.6.1.85-423d-3) experimental; urgency=low
+
+  * Remove lenny compatibility options -U --unified-reject-files and
+   --global-reject-file.
+
+ -- Christoph Berg <myon@debian.org>  Sun, 06 Feb 2011 20:42:58 +0100
+
+patch (2.6.1.85-423d-2) experimental; urgency=low
+
+  * Enable -m short option for --merge as documented in help and manpage.
+    Closes: #597305.
+
+ -- Christoph Berg <myon@debian.org>  Wed, 22 Sep 2010 22:09:13 +0200
+
+patch (2.6.1.85-423d-1) experimental; urgency=low
+
+  * New upstream snapshot.
+    + Improved CR stripping heuristics: Closes: #484539.
+    + Refuses to patch symlinks: Closes: #243309.
+    + Preserves uid/gid/mode where possible: Closes: #262737.
+    + Refuses to patch read-only files unless -f or -t are used:
+      Closes: #274079.
+
+ -- Christoph Berg <myon@debian.org>  Tue, 11 May 2010 09:59:01 +0200
+
+patch (2.6.1-3) unstable; urgency=low
+
+  * 3.0 (quilt).
+  * Fix Suggests broken in the last upload.
+
+ -- Christoph Berg <myon@debian.org>  Wed, 25 Jan 2012 15:00:41 +0100
 
 patch (2.6.1-2) unstable; urgency=low
 
@@ -30,13 +106,6 @@ patch (2.6.1-1) unstable; urgency=low
     repository the package is hosted in.
 
  -- Christoph Berg <myon@debian.org>  Sun, 06 Feb 2011 20:19:30 +0100
-
-patch (2.6-3) unstable; urgency=low
-
-  * Enable -m short option for --merge as documented in help and manpage.
-    Closes: #597305.
-
- -- Christoph Berg <myon@debian.org>  Wed, 22 Sep 2010 21:41:30 +0200
 
 patch (2.6-2) unstable; urgency=low
 
