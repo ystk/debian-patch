@@ -1,3 +1,21 @@
+Changes in version 2.7.5:
+
+* There are users which expect patch to follow symbolic links in the working
+  directory, so patch now again follows symbolic links as long as they do not
+  leave the working directory.
+
+Changes until version 2.7.4:
+
+* When a file isn't being deleted because the file contents don't match the
+  patch, the resulting message is now "Not deleting file ... as content
+  differs from patch" instead of "File ... is not empty after patch; not
+  deleting".
+* Function names in hunks (from diff -p) are now preserved in reject files.
+* Patch no longer follows symbolic links to input and output files.  This
+  ensures that symbolic links created by git-style patches cannot cause
+  patch to write outside the working directory (CVE-2015-1196).
+* Various fixes.
+
 Changes in version 2.7.1:
 
 * Two critical bug fixes in the "diff --git" format support.

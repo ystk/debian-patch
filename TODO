@@ -1,9 +1,7 @@
-* Warn when in --dry-run and the same input file is patched more than once?
+Announcement ...
 
-* More portability fixes
-* Try to improve the test suite coverage
-* Add test cases for plan B
-* gnulib tests?
-
-* Get rid of the ISSPACE etc. mess
-* Get rid of the signal related tests in configure.ac, etc.?
+* Fix Savannah patches.
+* Reduce the number of unnecessary syscalls: for example, stat is often called
+  repeatedly. 
+* Call makedirs() before creating files inside the directory; with the dirfd
+  cache, this causes no extra syscalls anymore.
