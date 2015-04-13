@@ -25,6 +25,7 @@
 #undef XTERN
 #define XTERN
 #include <inp.h>
+#include <safe.h>
 
 /* Input-file-with-indexable-lines abstract type */
 
@@ -46,6 +47,7 @@ static bool plan_a (char const *);	/* yield false if memory runs out */
 static void plan_b (char const *);
 static void report_revision (bool);
 static void too_many_lines (char const *) __attribute__((noreturn));
+static void lines_too_long (char const *) __attribute__((noreturn));
 
 /* New patch--prepare to edit another file. */
 
@@ -128,6 +130,11 @@ too_many_lines (char const *filename)
   fatal ("File %s has too many lines", quotearg (filename));
 }
 
+static void
+lines_too_long (char const *filename)
+{
+  fatal ("Lines in file %s are too long", quotearg (filename));
+}
 
 bool
 get_input_file (char const *filename, char const *outname, mode_t file_type)
@@ -231,7 +238,7 @@ plan_a (char const *filename)
     {
       if (S_ISREG (instat.st_mode))
         {
-	  int ifd = open (filename, O_RDONLY|binary_transput);
+	  int ifd = safe_open (filename, O_RDONLY|binary_transput, 0);
 	  size_t buffered = 0, n;
 	  if (ifd < 0)
 	    pfatal ("can't open file %s", quotearg (filename));
@@ -262,7 +269,7 @@ plan_a (char const *filename)
       else if (S_ISLNK (instat.st_mode))
 	{
 	  ssize_t n;
-	  n = readlink (filename, buffer, size);
+	  n = safe_readlink (filename, buffer, size);
 	  if (n < 0)
 	    pfatal ("can't read %s %s", "symbolic link", quotearg (filename));
 	  size = n;
@@ -333,6 +340,7 @@ plan_a (char const *filename)
 static void
 plan_b (char const *filename)
 {
+  int ifd;
   FILE *ifp;
   int c;
   size_t len;
@@ -345,7 +353,8 @@ plan_b (char const *filename)
 
   if (instat.st_size == 0)
     filename = NULL_DEVICE;
-  if (! (ifp = fopen (filename, binary_transput ? "rb" : "r")))
+  if ((ifd = safe_open (filename, O_RDONLY | binary_transput, 0)) < 0
+      || ! (ifp = fdopen (ifd, binary_transput ? "rb" : "r")))
     pfatal ("Can't open file %s", quotearg (filename));
   if (TMPINNAME_needs_removal)
     {
@@ -356,6 +365,8 @@ plan_b (char const *filename)
     {
       tifd = make_tempfile (&TMPINNAME, 'i', NULL, O_RDWR | O_BINARY,
 			    S_IRUSR | S_IWUSR);
+      if (tifd == -1)
+	pfatal ("Can't create temporary file %s", TMPINNAME);
       TMPINNAME_needs_removal = true;
     }
   i = 0;
@@ -367,7 +378,8 @@ plan_b (char const *filename)
 
   while ((c = getc (ifp)) != EOF)
     {
-      len++;
+      if (++len > ((size_t) -1) / 2)
+	lines_too_long (filename);
 
       if (c == '\n')
 	{

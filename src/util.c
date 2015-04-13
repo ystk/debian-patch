@@ -27,6 +27,7 @@
 #define XTERN
 #include <util.h>
 #include <xalloc.h>
+#include <xmemdup0.h>
 
 #include <getdate.h>
 #include "ignore-value.h"
@@ -50,6 +51,8 @@
 # include <stdarg.h>
 # include "verror.h"
 #endif
+
+#include <safe.h>
 
 static void makedirs (char const *);
 
@@ -215,6 +218,9 @@ copy_attr (char const *src_path, char const *dst_path)
     .quote = copy_attr_quote,
     .quote_free = copy_attr_free
   };
+  /* FIXME: We are copying between files we know we can safely access by
+   * pathname. A safe_ version of attr_copy_file() might still be slightly
+   * more efficient for deep paths. */
   return attr_copy_file (src_path, dst_path, copy_attr_check, &ctx);
 }
 
@@ -243,7 +249,7 @@ set_file_attributes (char const *to, enum file_attributes attr,
 	  times[0] = get_stat_atime (st);
 	  times[1] = get_stat_mtime (st);
 	}
-      if (lutimens (to, times) != 0)
+      if (safe_lutimens (to, times) != 0)
 	pfatal ("Failed to set the timestamps of %s %s",
 		S_ISLNK (mode) ? "symbolic link" : "file",
 		quotearg (to));
@@ -266,10 +272,10 @@ set_file_attributes (char const *to, enum file_attributes attr,
       /* May fail if we are not privileged to set the file owner, or we are
          not in group instat.st_gid.  Ignore those errors.  */
       if ((uid != -1 || gid != -1)
-	  && lchown (to, uid, gid) != 0
+	  && safe_lchown (to, uid, gid) != 0
 	  && (errno != EPERM
 	      || (uid != -1
-		  && lchown (to, (uid = -1), gid) != 0
+		  && safe_lchown (to, (uid = -1), gid) != 0
 		  && errno != EPERM)))
 	pfatal ("Failed to set the %s of %s %s",
 		(uid == -1) ? "owner" : "owning group",
@@ -288,7 +294,7 @@ set_file_attributes (char const *to, enum file_attributes attr,
 	 systems where we could.  */
       if (lchmod (to, mode))
 #else
-      if (! S_ISLNK (mode) && chmod (to, mode) != 0)
+      if (! S_ISLNK (mode) && safe_chmod (to, mode) != 0)
 #endif
 	pfatal ("Failed to set the permissions of %s %s",
 		S_ISLNK (mode) ? "symbolic link" : "file",
@@ -381,8 +387,8 @@ create_backup (char const *to, const struct stat *to_st, bool leave_original)
 	    say ("Creating empty file %s\n", quotearg (bakname));
 
 	  try_makedirs_errno = ENOENT;
-	  unlink (bakname);
-	  while ((fd = creat (bakname, 0666)) < 0)
+	  safe_unlink (bakname);
+	  while ((fd = safe_open (bakname, O_CREAT | O_WRONLY | O_TRUNC, 0666)) < 0)
 	    {
 	      if (errno != try_makedirs_errno)
 		pfatal ("Can't create file %s", quotearg (bakname));
@@ -399,7 +405,7 @@ create_backup (char const *to, const struct stat *to_st, bool leave_original)
 	  if (debug & 4)
 	    say ("Renaming file %s to %s\n",
 		 quotearg_n (0, to), quotearg_n (1, bakname));
-	  while (rename (to, bakname) != 0)
+	  while (safe_rename (to, bakname) != 0)
 	    {
 	      if (errno == try_makedirs_errno)
 		{
@@ -410,7 +416,7 @@ create_backup (char const *to, const struct stat *to_st, bool leave_original)
 		{
 		  create_backup_copy (to, bakname, to_st,
 				      try_makedirs_errno == 0);
-		  unlink (to);
+		  safe_unlink (to);
 		  break;
 		}
 	      else
@@ -457,7 +463,7 @@ move_file (char const *from, bool *from_needs_removal,
 	  char *buffer = xmalloc (PATH_MAX);
 	  int fd, size = 0, i;
 
-	  if ((fd = open (from, O_RDONLY | O_BINARY)) < 0)
+	  if ((fd = safe_open (from, O_RDONLY | O_BINARY, 0)) < 0)
 	    pfatal ("Can't reopen file %s", quotearg (from));
 	  while ((i = read (fd, buffer + size, PATH_MAX - size)) > 0)
 	    size += i;
@@ -467,18 +473,18 @@ move_file (char const *from, bool *from_needs_removal,
 
 	  if (! backup)
 	    {
-	      if (unlink (to) == 0)
+	      if (safe_unlink (to) == 0)
 		to_dir_known_to_exist = true;
 	    }
-	  if (symlink (buffer, to) != 0)
+	  if (safe_symlink (buffer, to) != 0)
 	    {
 	      if (errno == ENOENT && ! to_dir_known_to_exist)
 		makedirs (to);
-	      if (symlink (buffer, to) != 0)
+	      if (safe_symlink (buffer, to) != 0)
 		pfatal ("Can't create %s %s", "symbolic link", to);
 	    }
 	  free (buffer);
-	  if (lstat (to, &to_st) != 0)
+	  if (safe_lstat (to, &to_st) != 0)
 	    pfatal ("Can't get file attributes of %s %s", "symbolic link", to);
 	  insert_file_id (&to_st, CREATED);
 	}
@@ -488,7 +494,7 @@ move_file (char const *from, bool *from_needs_removal,
 	    say ("Renaming file %s to %s\n",
 		 quotearg_n (0, from), quotearg_n (1, to));
 
-	  if (rename (from, to) != 0)
+	  if (safe_rename (from, to) != 0)
 	    {
 	      bool to_dir_known_to_exist = false;
 
@@ -497,7 +503,7 @@ move_file (char const *from, bool *from_needs_removal,
 		{
 		  makedirs (to);
 		  to_dir_known_to_exist = true;
-		  if (rename (from, to) == 0)
+		  if (safe_rename (from, to) == 0)
 		    goto rename_succeeded;
 		}
 
@@ -506,7 +512,7 @@ move_file (char const *from, bool *from_needs_removal,
 		  struct stat tost;
 		  if (! backup)
 		    {
-		      if (unlink (to) == 0)
+		      if (safe_unlink (to) == 0)
 			to_dir_known_to_exist = true;
 		      else if (errno != ENOENT)
 			pfatal ("Can't remove file %s", quotearg (to));
@@ -535,7 +541,7 @@ move_file (char const *from, bool *from_needs_removal,
     {
       if (debug & 4)
 	say ("Removing file %s\n", quotearg (to));
-      if (unlink (to) != 0 && errno != ENOENT)
+      if (safe_unlink (to) != 0 && errno != ENOENT)
 	pfatal ("Can't remove file %s", quotearg (to));
     }
 }
@@ -554,8 +560,8 @@ create_file (char const *file, int open_flags, mode_t mode,
   do
     {
       if (! (O_CREAT && O_TRUNC))
-	close (creat (file, mode));
-      fd = open (file, O_CREAT | O_TRUNC | open_flags, mode);
+	close (safe_open (file, O_CREAT | O_WRONLY | O_TRUNC, mode));
+      fd = safe_open (file, O_CREAT | O_TRUNC | open_flags, mode);
       if (fd < 0)
 	{
 	  char *f;
@@ -576,7 +582,7 @@ copy_to_fd (const char *from, int tofd)
   int fromfd;
   ssize_t i;
 
-  if ((fromfd = open (from, O_RDONLY | O_BINARY)) < 0)
+  if ((fromfd = safe_open (from, O_RDONLY | O_BINARY, 0)) < 0)
     pfatal ("Can't reopen file %s", quotearg (from));
   while ((i = read (fromfd, buf, bufsize)) != 0)
     {
@@ -606,11 +612,11 @@ copy_file (char const *from, char const *to, struct stat *tost,
     {
       char *buffer = xmalloc (PATH_MAX);
 
-      if (readlink (from, buffer, PATH_MAX) < 0)
+      if (safe_readlink (from, buffer, PATH_MAX) < 0)
 	pfatal ("Can't read %s %s", "symbolic link", from);
-      if (symlink (buffer, to) != 0)
+      if (safe_symlink (buffer, to) != 0)
 	pfatal ("Can't create %s %s", "symbolic link", to);
-      if (tost && lstat (to, tost) != 0)
+      if (tost && safe_lstat (to, tost) != 0)
 	pfatal ("Can't get file attributes of %s %s", "symbolic link", to);
       free (buffer);
     }
@@ -634,7 +640,7 @@ append_to_file (char const *from, char const *to)
 {
   int tofd;
 
-  if ((tofd = open (to, O_WRONLY | O_BINARY | O_APPEND)) < 0)
+  if ((tofd = safe_open (to, O_WRONLY | O_BINARY | O_APPEND, 0)) < 0)
     pfatal ("Can't reopen file %s", quotearg (to));
   copy_to_fd (from, tofd);
   if (close (tofd) != 0)
@@ -701,8 +707,8 @@ version_controller (char const *filename, bool readonly,
 
   sprintf (trybuf, "%s/", dir);
 
-#define try1(f,a1)    (sprintf (trybuf + dirlen, f, a1),    stat (trybuf, &cstat) == 0)
-#define try2(f,a1,a2) (sprintf (trybuf + dirlen, f, a1,a2), stat (trybuf, &cstat) == 0)
+#define try1(f,a1)    (sprintf (trybuf + dirlen, f, a1),    safe_stat (trybuf, &cstat) == 0)
+#define try2(f,a1,a2) (sprintf (trybuf + dirlen, f, a1,a2), safe_stat (trybuf, &cstat) == 0)
 
   /* Check that RCS file is not working file.
      Some hosts don't report file name length errors.  */
@@ -833,7 +839,7 @@ version_get (char const *filename, char const *cs, bool exists, bool readonly,
 	     cs, readonly ? "" : " with lock");
       if (systemic (getbuf) != 0)
 	fatal ("Can't get file %s from %s", quotearg (filename), cs);
-      if (stat (filename, filestat) != 0)
+      if (safe_stat (filename, filestat) != 0)
 	pfatal ("%s", quotearg (filename));
     }
 
@@ -1272,6 +1278,9 @@ makedirs (char const *name)
   char *f;
   char *flim = replace_slashes (filename);
 
+  /* FIXME: Now with the pathname lookup cache, there is no reason for
+     deferring the creation of directories. Callers should be updated. */
+
   if (flim)
     {
       /* Create any missing directories, replacing NULs by '/'s.
@@ -1282,7 +1291,7 @@ makedirs (char const *name)
       for (f = filename;  f <= flim;  f++)
 	if (!*f)
 	  {
-	    mkdir (filename,
+	    safe_mkdir (filename,
 		   S_IRUSR|S_IWUSR|S_IXUSR
 		   |S_IRGRP|S_IWGRP|S_IXGRP
 		   |S_IROTH|S_IWOTH|S_IXOTH);
@@ -1312,7 +1321,7 @@ removedirs (char const *name)
 			      || ISSLASH (filename[i - 3])))))))
       {
 	filename[i] = '\0';
-	if (rmdir (filename) == 0 && verbosity == VERBOSE)
+	if (safe_rmdir (filename) == 0 && verbosity == VERBOSE)
 	  say ("Removed empty directory %s\n", quotearg (filename));
 	filename[i] = '/';
       }
@@ -1476,8 +1485,7 @@ fetchname (char const *at, int strip_leading, char **pname,
 		break;
 	      }
 	  }
-	name = savebuf (at, t - at + 1);
-	name[t - at] = 0;
+	name = xmemdup0 (at, t - at);
       }
 
     /* If the name is "/dev/null", ignore the name and mark the file
@@ -1509,8 +1517,7 @@ fetchname (char const *at, int strip_leading, char **pname,
 	  u--;
 	if (u != t && *(u-1) == '\r')
 	  u--;
-	timestr = savebuf (t, u - t + 1);
-	timestr[u - t] = 0;
+	timestr = xmemdup0 (t, u - t);
       }
 
       if (*t != '\n')
@@ -1568,8 +1575,7 @@ parse_name (char const *s, int strip_leading, char const **endp)
 
       for (t = s; *t && ! ISSPACE ((unsigned char) *t); t++)
 	/* do nothing*/ ;
-      ret = savebuf (s, t - s + 1);
-      ret[t - s] = 0;
+      ret = xmemdup0 (s, t - s);
       if (endp)
 	*endp = t;
     }
@@ -1592,14 +1598,41 @@ Fseek (FILE *stream, file_offset offset, int ptrname)
 #define TMPDIR "/tmp"
 #endif
 
+struct try_safe_open_args
+  {
+    int flags;
+    mode_t mode;
+  };
+
+static int try_safe_open (char *template, void *__args)
+{
+  struct try_safe_open_args *args = __args;
+  int try_makedirs_errno = ENOENT;
+  int fd;
+
+repeat:
+  fd = safe_open (template, O_CREAT | O_EXCL | args->flags, args->mode);
+  if (fd < 0 && errno == try_makedirs_errno)
+    {
+      makedirs (template);
+      try_makedirs_errno = 0;
+      goto repeat;
+    }
+  return fd;
+}
+
 int
 make_tempfile (char const **name, char letter, char const *real_name,
 	       int flags, mode_t mode)
 {
-  int try_makedirs_errno = ENOENT;
   char *template;
+  struct try_safe_open_args args = {
+    .flags = flags,
+    .mode = mode,
+  };
+  int fd;
 
-  if (real_name)
+  if (real_name && ! dry_run)
     {
       char *dirname, *basename;
 
@@ -1626,37 +1659,60 @@ make_tempfile (char const **name, char letter, char const *real_name,
       template = xmalloc (strlen (tmpdir) + 10);
       sprintf (template, "%s/p%cXXXXXX", tmpdir, letter);
     }
-  for(;;)
-    {
-      int fd;
-
-      if (gen_tempname (template, 0, flags, GT_NOCREATE))
-        pfatal ("Can't create temporary file %s", template);
-    retry:
-      fd = open (template, O_CREAT | O_EXCL | flags, mode);
-      if (fd == -1)
-        {
-	  if (errno == try_makedirs_errno)
-	    {
-	      makedirs (template);
-	      /* FIXME: When patch fails, this may leave around empty
-	         directories.  */
-	      try_makedirs_errno = 0;
-	      goto retry;
-	    }
-	  if (errno == EEXIST)
-	    continue;
-	  pfatal ("Can't create temporary file %s", template);
-	}
-      *name = template;
-      return fd;
-    }
+  fd = try_tempname(template, 0, &args, try_safe_open);
+  *name = template;
+  return fd;
 }
 
 int stat_file (char const *filename, struct stat *st)
 {
   int (*xstat)(char const *, struct stat *) =
-    follow_symlinks ? stat : lstat;
+    follow_symlinks ? safe_stat : safe_lstat;
 
   return xstat (filename, st) == 0 ? 0 : errno;
+}
+
+/* Check if a filename is relative and free of ".." components.
+   Such a path cannot lead to files outside the working tree
+   as long as the working tree only contains symlinks that are
+   "filename_is_safe" when followed.  */
+bool
+filename_is_safe (char const *name)
+{
+  if (IS_ABSOLUTE_FILE_NAME (name))
+    return false;
+  while (*name)
+    {
+      if (*name == '.' && *++name == '.'
+	  && ( ! *++name || ISSLASH (*name)))
+	return false;
+      while (*name && ! ISSLASH (*name))
+	name++;
+      while (ISSLASH (*name))
+	name++;
+    }
+  return true;
+}
+
+/* Check if we are in the root of a particular filesystem namespace ("/" on
+   UNIX or a particular drive's root on DOS-like systems).  */
+bool
+cwd_is_root (char const *name)
+{
+  unsigned int prefix_len = FILE_SYSTEM_PREFIX_LEN (name);
+  char root[prefix_len + 2];
+  struct stat st;
+  dev_t root_dev;
+  ino_t root_ino;
+
+  memcpy (root, name, prefix_len);
+  root[prefix_len] = '/';
+  root[prefix_len + 1] = 0;
+  if (stat (root, &st))
+    return false;
+  root_dev = st.st_dev;
+  root_ino = st.st_ino;
+  if (stat (".", &st))
+    return false;
+  return root_dev == st.st_dev && root_ino == st.st_ino;
 }

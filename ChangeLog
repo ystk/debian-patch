@@ -1,3 +1,485 @@
+2015-03-07  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Version 2.7.5
+	* NEWS: Update.
+
+	build: update gnulib submodule to latest
+
+	Allow absolute symlinks that lead back into the working directory
+	* src/safe.c (cwd_stat_errno, cwd_stat): stat() result of ".".
+	(read_symlink): When a symlink is absolute, check if it leads back into the
+	working directory.  If it does, strip off the prefix above the working
+	directory. If the symlink points to the working directory, return an empty
+	path.
+	(traverse_another_path): Recognize empty paths from read_symlink().
+	* tests/symlinks: Absolute symlink test cases.
+
+2015-03-05  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Describe better how the dirfd cache works
+
+	Use overflow safe arithmetic for counting cache misses
+	* src/safe.c: We don't need a long counter if we use overflow-safe arithmetic
+	here.
+
+	Also cache resolved symlinks
+	When resolving a symlink in a pathname, we traverse each path component in the
+	symlink and cache all of them.  At the end, add an additional cache entry for
+	the symlink itself so that we don't have to resolve the symlink again (even
+	though this will usually be cached).  Skip that if the symlink's parent isn't
+	in the cache anymore, though.
+	* src/safe.c (free_cached_dirfd): Remove from parent here instead of in
+	callers. Move close() to remove_cached_dirfd() instead.
+	(insert_cached_dirfd): Only insert if the entry's parent still exists; entries
+	without parent are invalid (see compare_cached_dirfds()); "top-level" entries
+	have cwd as their parent.
+	(new_cached_dirfd): New function split off from openat_cached().
+	(openat_cached): Use new_cached_dirfd() here.
+	(traverse_another_path): When starting to resolve a symlink, create an unhashed
+	dirfd cache entry for the symlink lookup result. When the symlink is completely
+	resolved, add that entry to the cache.
+
+	Invalidate child dirfd cache entries when their parent goes away
+	If we don't do that, a directory could be removed from the cache, a new
+	directory with the same dirfd could be created, and the entries from the old
+	directory would appear in the new directory.
+	* src/safe.c (struct cached_dirfd): Keep track of the children of each dirfd
+	cache entry.
+	(remove_cached_dirfd): Remove all the entry's children from the lookup hash,
+	take them off the list of children, and initialize the children's
+	children_link.  Then, remove the entry itself from its parent. This has no
+	effect if the entry doesn't have a parent because then, children_link is empty.
+	(openat_cached): Add new dirfd cache entries to their parent's list of children
+	and initialize the entry's list of children.
+	(traverse_another_path): Also initialize cwd's list of children.
+
+	Convert lru list into a list_head list
+	* src/safe.c (struct cached_dirfd): Replace prev and next with a lru_link
+	list_head.
+	(lru_list): Turn into a list_head.
+	(lru_list_add, lru_list_del, lru_list_del_init): Replace by list_add(),
+	list_del(), list_del_init().
+	(insert_cached_dirfd): Get to the list entry from the embedded list_head with
+	the list_entry() macro.
+
+	Add list_head based double linked list
+	* src/list.h: New data structure.
+	src/Makefile.am (patch_SOURCES): Add list.h.
+
+	Invalidate dirfd less aggressively
+	src/safe.c (safe_rename, safe_rmdir): Only invalidate cache entries when the
+	underlying sycall succeeds and the entry actually goes away.  This keeps the
+	cache filled upon speculative rmdir when the directory may not be empty, for
+	example.
+
+2015-03-05  Tim Waugh  <twaugh@redhat.com>
+
+	Add more path traversal test cases
+	* tests/symlinks: Add more path traversal test cases.
+
+2015-03-05  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Move path traversal error reporting into main()
+	* src/safe.c (traverse_another_path): Don't report errors here.
+	* src/patch.c (main): Instead, recognize and report them here. Detect when an
+	output file name is invalid; it doesn't make sense to try creating a
+	reject file based on the same outbut file name in that case.
+
+	Limit the number of path components
+	src/safe.c (MAX_PATH_COMPONENTS): The maximum number of path components
+	allowed.
+	(count_path_components): New function.
+	(traverse_another_path): Fail if the number of path components gets too high.
+
+	Follow directory symlinks within the working directory
+	* src/safe.c (struct symlink): A symlink to resolve.
+	(push_symlink, pop_symlink): New functions.
+	(read_symlink): Create a new symlink stack entry.
+	(traverse_next): Follow ".." components within the working directory. When
+	hitting symlinks, "follow" them by reading and returning them.
+	(traverse_another_path): Recursively traverse symlinks.
+
+	Keep track of the directory hierarchy
+	* src/safe.c (struct cached_dirfd): Add parent pointer. Now that we know our
+	parent, we no longer need to duplicate its directory file descriptor.
+	(lookup_cached_dirfd): Don't update the lru list here.
+	(insert_cached_dirfd): The lru list may now be empty even if the cache is not.
+	(put_path): New function to put a path back into the lru list.
+	(openat_cached): Take cached entried off the lru list.  They are added back
+	in put_path().
+	(traverse_another_path): Put lookup result back into the lru list with
+	put_path().
+
+2015-02-28  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Refactor traverse_another_path() and helpers
+	Prepare for keeping track of the directory hierarchy:
+	* src/safe.c (traverse_another_path): Pass struct cached_dirfd to
+	traverse_next().
+	(traverse_next, openat_cached): Pass through struct cached_dirfd.
+
+	Move error reporting out of make_tempfile()
+	* src/util.c (make_tempfile): Remove error reporting here.
+	* src/inp.c (plan_b): Readd error reporting here.
+	* src/patch.c (main): Likewise.
+	* src/pch.c (open_patch_file): Likewise.
+
+	Minor cosmetic changes
+	* src/safe.c: Minor cosmetic changes
+
+2015-02-22  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Fix handling of renamed files
+	When a file has already been renamed, make sure it is not renamed back to its
+	old name.  Reported by Guido Draheim.
+	* src/patch.c (main): Make sure we never rename a file back to its previous
+	name. Report when a file was renamed already.
+	* tests/copy-rename: Add "already renamed" test cases.
+
+2015-02-10  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Fix symlinks test case on some architectures
+	* src/safe.c: Include util.h for say(). Define EFTYPE if it isn't defined
+	already.
+	(traverse_another_path): When openat fails, also check for EMLINK, EFTYPE, and
+	ENOTDIR. Change the error message to "file ... is not a directory" and only
+	skip the rest of the patch instead of aborting.
+	* tests/symlinks: Update.
+
+2015-02-04  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Test suite portability fixes
+	Reported and fixed (mostly) by Christian Weisgerber <naddy@mips.inka.de>:
+	* tests/deep-directories: Avoid the bash >& redirection operator.
+	* tests/no-mode-change-git-diff: Instead of "stat -c", use "ls -l  sed".
+	* tests/read-only-files: A redirection failure for a special built-in causes
+	some shells (FreeBSD sh, OpenBSD sh (pdksh), some bash --posix) to exit, and
+	the colon command is a special built-in. Perform the redirection in a subshell.
+
+	Switch from gen_tempname() to try_tempname()
+	* Update gnulib submodule to latest.
+	* src/util.c (try_safe_open_args, try_safe_open): Arguments and callback for
+	try_tempname().
+	(make_tempfile): Switch from gen_tempname() to try_tempname().
+
+2015-02-02  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Check the result of the --follow-symlinks option
+	* tests/symlinks: Check the result of treating a symlink as a file with
+	--follow-symlinks.
+
+2015-02-01  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Link patch with LIB_EACCESS where needed
+	* src/Makefile.am (patch_LDADD): Add LIB_EACCESS here. At least on Solaris,
+	faccessat() is implemented through eaccess() which is in the "gen" library.
+
+	Fix minor signedness warning
+	* src/pch.c (intuit_diff_type): Don't assign signed dummy value to unsigned
+	variable.
+
+	Use gnulib faccessat module
+	* bootstrap.conf (gnulib_modules): Add faccessat.
+
+2015-01-31  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Upate NEWS
+
+	Fix indentation heuristic for context diffs
+	Diffs can be indented by a variable number of spaces, tabs, or X characters.
+	Make sure that intuit_diff_type() only accepts context diffs where the first
+	and second line are indented identically, or else another_hunk() will fail.
+	* src/pch.c (intuit_diff_type): Remember the indentation of the last line. Only
+	recognize context diff hunks with the same amount of indentation on the first
+	and second line.
+	* tests/garbage: New test case.
+	* tests/Makefile.am (TESTS): Add test case.
+
+2015-01-31  Quentin Casasnovas  <quentin.casasnovas@oracle.com>
+
+	patch: git-diff mode: do not change permissions if there isn't an explicit mode change.
+
+	tests: add a test case for unwanted mode changes.
+
+	test-lib.sh: factorize require_* functions
+	Since the code is identical when just checking if a utility is present on
+	the system or not, we can factorize it.
+
+2015-01-31  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Add test case for patch behind symlink
+	* tests/symlinks: Add a test case where the patch file itself is in a path that
+	follows a symbolic link; we want to continue allowing that.
+
+2015-01-31  Tim Waugh  <twaugh@redhat.com>
+
+	Allow arbitrary symlink targets again
+	* src/util.c (symlink_target_is_valid): Remove.
+	(move_file): Remove symlink target checking.
+	* tests/symlinks: Update test case.
+
+2015-01-31  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Update list of gnulib modules used
+	* bootstrap.conf (gnulib_modules): Remove lchmod, lstat, mkdir, readlink,
+	rename, mkdir, symlink, unlink, utimens. Add fchownat, fchmodat, fstatat,
+	mkdirat, openat, readlinkat, renameat, symlinkat, unlinkat, utimensat.
+	* src/util.h: Don't include <utimens.h> anymore.
+
+	Use symlink-safe system call replacements
+	Use the symlink-safe replacements for system calls in many places throughout
+	the code: In some places this makes patch safe against path traversal attacks;
+	in other places, it saves the kernel from having to re-traverse the pathnames.
+	* src/inp.c (plan_b): Use safe_open() + fdopen() instead of fopen().
+	* src/util.c (copy_attr): Document why we are safe here.
+	(create_backup): Use safe_open() instead of creat().
+
+2015-01-31  Tim Waugh  <twaugh@redhat.com>
+
+	Add symlink-safe system call replacements
+	Add wrappers around system calls that traverse relative pathnames without
+	following symlinks. Written by Tim Waugh <twaugh@redhat.com> and Andreas
+	Gruenbacher <agruenba@redhat.com>.
+	* src/safe.h: Declare functions here.
+	* src/safe.c: Implement safe_* system call replacements that do not follow
+	symlinks along pathnames. Pathname components are resolved with openat().
+	Lookup results are cached to keep the overhead reasonably low.
+	* tests/deep-directories: New path traversal cache test.
+	* src/Makefile.am (patch_SOURCES): Add safe.[ch].
+	* tests/Makefile.am (TESTS): Add new test.
+
+2015-01-31  Andreas Gruenbacher  <agruen@gnu.org>
+
+	build: update gnulib submodule to latest
+
+2015-01-31  Tim Waugh  <twaugh@redhat.com>
+
+	Avoid closing file descriptor twice
+	* src/patch.c (main): Make sure we don't close() outfd after passing it on to
+	fdopen(): the file descriptor might have been reused in the meantime.
+
+2015-01-29  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Remove unused variable
+	* src/pch.c (name_is_valid): Remove unused variable.
+
+2015-01-22  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Fix the fix for CVE-2015-1196
+	* src/util.c (filename_is_safe): New function split off from name_is_valid().
+	(symlink_target_is_valid): Explain why we cannot have absolute symlinks or
+	symlinks with ".." components for now.
+	(move_file): Move absolute filename check here and explain.
+	* tests/symlinks: Put test case with ".." symlink in comments for now.
+	* NEWS: Add CVE number.
+
+2015-01-21  Andreas Gruenbacher  <agruen@gnu.org>
+
+	For renames and copies, make sure that both file names are valid
+	* src/patch.c (main): Allow there_is_another_patch() to set the
+	skip_rest_of_patch flag.
+	* src/pch.c (intuit_diff_type): For renames and copies, also check the "other"
+	file name.
+	(pch_copy, pch_rename): Now that both names are checked in intuit_diff_type(),
+	we know they are defined here.
+
+2015-01-20  Andreas Gruenbacher  <agruen@gnu.org>
+
+	Fail when out of memory in set_hunkmax()
+	src/pch.c (another_hunk): Call set_hunkmax() from here to make sure it is
+	called even when falling back from plan A to plan B.
+	(open_patch_file): No need to call set_hunkmax() anymore.
+	src/pch.c (set_hunkmax): Fail when out of memory. Make static.
+	src/pch.h: Remove set_hunkmax() prototype.
+
+	Don't try applying hunks at offsets that can't work
+	* src/patch.c (locate_hunk): Start trying to apply the hunk at the minimum
+	offset which puts the hunk in the valid range of lines. This will often still
+	be offset 0.
+
+2015-01-20  Andreas Gruenbacher  <andreas.gruenbacher@gmail.com>
+
+	Move symlink_target_is_valid() and cwd_is_root()
+	* src/util.c: Move symlink_target_is_valid() and cwd_is_root() here from
+	src/pch.c.
+
+2015-01-19  Andreas Gruenbacher  <andreas.gruenbacher@gmail.com>
+
+	Make sure symlinks don't point outside working directory (CVE-2015-119)
+	When creating symlinks from git-style patches, make sure the symlinks don't
+	point above the current working directory.  Otherwise, a subsequent patch could
+	use the symlink to write outside the working directory.
+
+	* src/pch.c (symlink_target_is_valid): New function to check for valid symlink
+	targets.
+	* src/util.c (move_file): Use symlink_target_is_valid() here.
+	* tests/symlinks: Add valid and invalid symlink test cases.
+
+2014-11-30  Andreas Gruenbacher  <agruen@linbit.com>
+
+	Add line number overflow checking
+	* bootstrap.conf: use intprops module.
+	* src/common.h: Define LINENUM_MIN and LINENUM_MAX macros.
+	* src/pch.c (another_hunk): Add line number overflow checking.  Based on Robert
+	C. Seacord's INT32-C document for integer overflow checking and Tobias
+	Stoeckmann's "integer overflows and oob memory access" patch for FreeBSD.
+
+2014-11-30  Andreas Gruenbacher  <agruen@linbit.com>
+
+	More savebuf/savestr error handling
+	* bootstrap.conf: use xmemdup0 module.
+	* src/pch.c (there_is_another_patch): Use xmemdup0 instead of savebuf when we
+	cannot recover from out-of-memory situations.
+	(intuit_diff_type): Likewise, use xstrdup instead of savestr.
+	(another_hunk): Handle the case when savestr returns NULL.
+	* src/util.c (fetchname, parse_name): Use xmemdup0 instead of savebuf when we
+	cannot recover from out-of-memory situations.
+
+	Bugs pointed out by Tobias Stoeckmann <tobias@stoeckmann.org>.
+
+2014-11-30  Tobias Stoeckmann  <tobias@stoeckmann.org>
+
+	savebuf/savestr error handling
+	* src/patch.c (get_some_switches): The function savebuf (and therefore savestr)
+	copies strings using malloc.  If malloc fails, NULL is returned.  This is
+	intentional behavior so that in case of failure during "plan a" patching, "plan
+	b" can step in.  The return value has to be properly checked for NULL.  If the
+	return value must not be NULL, use xstrdup instead.
+
+2014-11-30  Andreas Gruenbacher  <andreas.gruenbacher@gmail.com>
+
+	build: update gnulib submodule to latest
+	* src/merge.c (compute_changes): The TOO_EXPENSIVE heuristic in diffseq has
+	been removed, including compareseq's find_minimal parameter and the context's
+	too_expensive limit.  Adjust.
+
+2014-11-10  Jean Delvare  <jdelvare@suse.de>
+
+	Drop useless test in another_hunk()
+	src/pch.c (another_hunk): This test will always succeed.
+
+2014-10-30  Tobias Stoeckmann  <tobias@stoeckmann.org>
+
+	Buffer overflow on malicious input file
+	There is a hard to reach but possible buffer overflow when using
+	patch with a very large (modified) input file.  I doubt you will ever
+	see this with a 64 bit system, but it's possible with 32 bit:
+
+	$ echo hello > file1
+	$ echo world > file2
+	$ diff -Nau file1 file2 > file.diff
+
+	Nothing fancy so far.  Adjust file1 so it contains at least one line that
+	is 2 GB in size.  Larger is fine too, but stay below 4 GB.
+
+	$ tr '\0' c < /dev/zero | dd bs=1K count=2097152 of=file1
+
+	Now try to patch it.
+
+	$ patch -Np0 -i file.diff
+	Segmentation fault
+
+	The issue is in patch's "plan b" strategy  (If your system would still
+	want to use "plan a", force patch to use "plan b" through debug flag).
+
+	Plan b writes lines into a temporary file, with equally long lines, so
+	it can use a buffer mechanism to access them in a kind of randomly
+	fassion.  In order to do that, it retrieves the longest line.
+
+	In this example, it will encounter the 2 GB line and stores that as the
+	longest one.  Afterwards it will adjust the tibufsize variable to be
+	large enough:
+
+	  for (tibufsize = TIBUFSIZE_MINIMUM;  tibufsize < maxlen;  tibufsize <<= 1)
+	    /* do nothing */ ;
+
+	Due to maxlen's size (2 GB), tibufsize will be SIZE_T_MAX, i.e. 4 GB.
+	A few lines later it allocates space for the tibuf buffers:
+
+	  tibuf[0] = xmalloc (2 * tibufsize);
+	  tibuf[1] = tibuf[0] + tibufsize;
+
+	This will allocate 0 bytes because tibufsize overflowed.  The next
+	time patch writes into the buffer, a segmentation fault will occur...
+	Depends on your system how long it takes until that happens. ;)
+
+	The fix is simple:  Bail out on lines that are too long.  Patch already
+	does that for files that have too many lines.
+
+2014-08-13  Andreas Gruenbacher  <agruen@linbit.com>
+
+	Improve error message when refusing to delete file
+	* src/patch.c: Improve error message.
+	* tests/create-delete: Update the test case.
+
+2013-12-09  Andreas Gruenbacher  <agruen@linbit.com>
+
+	Correct the --help text of option --merge
+	* src/patch.c (option_help): The --merge option does not have a short
+	form; update the help text.
+
+2013-08-19  Steven Rostedt  <rostedt@goodmis.org>
+
+	Preserve function names in reject files
+	* src/patch.c (main): Preserve function names in reject files.
+	* tests/reject-format: Update the test case.
+
+2013-07-30  Andreas Gruenbacher  <agruen@linbit.com>
+
+	Test case for the dry-run fix
+	* tests/create-directory: Add test case here.
+
+	In dry-run mode, create temporary files in a temporary directory
+	* src/util.c (make_tempfile): Do not create temporary files in the final output
+	directory when in dry-run mode: the path may be read-only.  In addition, we do
+	not want to leave intermediary empty output directories around.
+
+2013-06-18  Eric S. Raymond  <esr@thyrsus.com>
+
+	Fix some formatting problems in the manpage
+	* patch.1: Use higher-level markup that translates better into HTML and other
+	formats.  (With changes by Andreas Gruenbacher.)
+
+2013-05-02  Stefano Lattarini  <stefano.lattarini@gmail.com>  (tiny change)
+
+	build: don't use -Werror in AM_INIT_AUTOMAKE
+	Doing so prevents bootstrapping with bleeding-edge autotools,
+	because of harmless deprecation warnings (that are not planned
+	to become hard errors for at least a few years to come).  And
+	unfortunately, options in AM_INIT_AUTOMAKE take precedence over
+	those given on the command line (this is a long-time wart of
+	automake).
+
+	* configure.ac (AM_INIT_AUTOMAKE): Drop '-Werror' option.
+
+2013-03-10  Andreas Gruenbacher  <agruen@linbit.com>
+
+	Fix removing empty directories
+	Reported by Thomas Moschny <thomas.moschny@gmx.de>:
+	src/patch.c (main): Temporary output files are created in the same directory as
+	the output file.  Make sure to remove them before removing empty files and
+	their empty ancestor directories; else the directories won't be empty.
+	tests/remove-directories: Add directory removal test case.
+	tests/Makefile.am (TESTS): Add new test case.
+
+2013-01-03  Andreas Gruenbacher  <agruen@linbit.com>
+
+	Clarify the description of option --forward
+	* patch.man: Clarify the description of option --forward.
+
+2012-10-04  Andreas Gruenbacher  <agruen@linbit.com>
+
+	Initialize data structures early enough
+	* src/patch.c (main): Initialize data structures early enough, before error
+	paths can access them.
+	* tests/bad-usage: Test bad command line usage.
+	* tests/Makefile.am (TESTS): Add bad-usage here.
+
+2012-09-30  Andreas Gruenbacher  <agruen@linbit.com>
+
+	Don't fail test suite if printf '\0' is broken
+	* tests/create-delete: Skip binary diff test if printf '\0' is broken.
+
 2012-09-28  Andreas Gruenbacher  <agruen@linbit.com>
 
 	Version 2.7.1

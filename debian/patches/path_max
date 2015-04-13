@@ -1,8 +1,8 @@
 --- a/src/util.c
 +++ b/src/util.c
-@@ -51,6 +51,11 @@
- # include "verror.h"
- #endif
+@@ -54,6 +54,11 @@
+ 
+ #include <safe.h>
  
 +/* make GNU/Hurd happy */
 +#ifndef PATH_MAX

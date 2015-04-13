@@ -1,3 +1,46 @@
+patch (2.7.5-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Fix symlink directory regression (closes: #777122).
+  * Update Standards-Version to 3.9.6 .
+
+ -- Laszlo Boszormenyi (GCS) <gcs@debian.org>  Sat, 07 Mar 2015 06:27:14 +0000
+
+patch (2.7.4-2) unstable; urgency=low
+
+  * Backport test suite fixes.
+
+ -- Laszlo Boszormenyi (GCS) <gcs@debian.org>  Wed, 04 Feb 2015 22:33:38 +0000
+
+patch (2.7.4-1) unstable; urgency=high
+
+  * New upstream release.
+  * Fix symlink handling (closes: #776257).
+  * Fix infinite loop with fuzzed diff (closes: #776271).
+
+ -- Laszlo Boszormenyi (GCS) <gcs@debian.org>  Sat, 31 Jan 2015 21:43:36 +0000
+
+patch (2.7.3-1) unstable; urgency=high
+
+  * New upstream release with security fixes:
+    - fix all cases of CVE-2015-1196 (closes: #775873, #775901),
+    - fix infinite loop while applying patch, CVE-2014-9637.
+  * Remove outdated disable-update-version and add_manpage_time.patch
+    Debian patches.
+  * Add homepage field.
+  * Add watch file.
+
+ -- Laszlo Boszormenyi (GCS) <gcs@debian.org>  Fri, 23 Jan 2015 20:27:32 +0000
+
+patch (2.7.1-7) unstable; urgency=high
+
+  * Backport patches from upstream Git tree:
+    - fix CVE-2015-119: directory traversal via symlinks (closes: #775227),
+    - infinite loop while applying patch (closes: #775540),
+    - segmentation fault while applying corrupted patch (closes: #775793).
+
+ -- Laszlo Boszormenyi (GCS) <gcs@debian.org>  Tue, 20 Jan 2015 19:34:19 +0000
+
 patch (2.7.1-6) unstable; urgency=medium
 
   * Fix ed check during build (closes: #721429, #729132).

@@ -18,7 +18,6 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
-#include <utimens.h>
 #include <timespec.h>
 #include <stat-time.h>
 #include <backupfile.h>
@@ -69,6 +68,8 @@ enum file_id_type lookup_file_id (struct stat const *);
 void set_queued_output (struct stat const *, bool);
 bool has_queued_output (struct stat const *);
 int stat_file (char const *, struct stat *);
+bool filename_is_safe (char const *);
+bool cwd_is_root (char const *);
 
 enum file_attributes {
   FA_TIMES = 1,

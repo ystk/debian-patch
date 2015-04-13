@@ -20,6 +20,7 @@ TESTS = \
 	asymmetric-hunks \
 	backup-prefix-suffix \
 	bad-filenames \
+	bad-usage \
 	concat-git-diff \
 	copy-rename \
 	corrupt-reject-files \
@@ -33,6 +34,7 @@ TESTS = \
 	file-modes \
 	filename-choice \
 	git-binary-diff \
+	garbage \
 	global-reject-files \
 	inname \
 	line-numbers \
@@ -41,6 +43,7 @@ TESTS = \
 	mixed-patch-types \
 	munged-context-format \
 	need-filename \
+	no-mode-change-git-diff \
 	no-newline-triggers-assert \
 	preserve-c-function-names \
 	preserve-mode-and-timestamp \
@@ -49,8 +52,10 @@ TESTS = \
 	reject-format \
 	remember-backup-files \
 	remember-reject-files \
+	remove-directories \
 	symlinks \
-	unmodified-files
+	unmodified-files \
+	deep-directories
 
 XFAIL_TESTS = \
 	dash-o-append

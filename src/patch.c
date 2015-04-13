@@ -33,6 +33,8 @@
 #include <xalloc.h>
 #include <gl_linked_list.h>
 #include <gl_xlist.h>
+#include <minmax.h>
+#include <safe.h>
 
 /* procedures */
 
@@ -113,6 +115,7 @@ main (int argc, char **argv)
     struct stat tmpoutst;
     char numbuf[LINENUM_LENGTH_BOUND + 1];
     bool written_to_rejname = false;
+    bool skip_reject_file = false;
     bool apply_empty_patch = false;
     mode_t file_type;
     int outfd = -1;
@@ -150,6 +153,10 @@ main (int argc, char **argv)
     else if ((version_control = getenv ("VERSION_CONTROL")))
       version_control_context = "$VERSION_CONTROL";
 
+    init_backup_hash_table ();
+    init_files_to_delete ();
+    init_files_to_output ();
+
     /* parse switches */
     Argc = argc;
     Argv = argv;
@@ -161,10 +168,6 @@ main (int argc, char **argv)
 
     if (make_backups | backup_if_mismatch)
       backup_type = get_version (version_control_context, version_control);
-
-    init_backup_hash_table ();
-    init_files_to_delete ();
-    init_files_to_output ();
 
     init_output (&outstate);
     if (outfile)
@@ -188,12 +191,16 @@ main (int argc, char **argv)
 	there_is_another_patch (! (inname || posixly_correct), &file_type)
 	  || apply_empty_patch;
 	reinitialize_almost_everything(),
+	  skip_reject_file = false,
 	  apply_empty_patch = false
     ) {					/* for each patch in patch file */
       int hunk = 0;
       int failed = 0;
       bool mismatch = false;
       char const *outname = NULL;
+
+      if (skip_rest_of_patch)
+	somefailed = true;
 
       if (have_git_diff != pch_git_diff ())
 	{
@@ -239,7 +246,7 @@ main (int argc, char **argv)
 	  if (outfile)
 	    outname = outfile;
 	  else if (pch_copy () || pch_rename ())
-	    outname = pch_name (! strcmp (inname, pch_name (OLD)));
+	    outname = pch_name (! reverse);
 	  else
 	    outname = inname;
 	}
@@ -287,7 +294,7 @@ main (int argc, char **argv)
 
       if (read_only_behavior != RO_IGNORE
 	  && ! inerrno && ! S_ISLNK (instat.st_mode)
-	  && access (inname, W_OK) != 0)
+	  && safe_access (inname, W_OK) != 0)
 	{
 	  say ("File %s is read-only; ", quotearg (inname));
 	  if (read_only_behavior == RO_WARN)
@@ -304,7 +311,20 @@ main (int argc, char **argv)
       outfd = make_tempfile (&TMPOUTNAME, 'o', outname,
 			     O_WRONLY | binary_transput,
 			     instat.st_mode & S_IRWXUGO);
-      TMPOUTNAME_needs_removal = true;
+      if (outfd == -1)
+	{
+	  if (errno == ELOOP || errno == EXDEV)
+	    {
+	      say ("Invalid file name %s -- skipping patch\n", quotearg (outname));
+	      skip_rest_of_patch = true;
+	      skip_reject_file = true;
+	      somefailed = true;
+	    }
+	  else
+	    pfatal ("Can't create temporary file %s", TMPOUTNAME);
+	}
+      else
+        TMPOUTNAME_needs_removal = true;
       if (diff_type == ED_DIFF) {
 	outstate.zero_output = false;
 	somefailed |= skip_rest_of_patch;
@@ -335,6 +355,8 @@ main (int argc, char **argv)
 	    outstate.ofp = fdopen(outfd, binary_transput ? "wb" : "w");
 	    if (! outstate.ofp)
 	      pfatal ("%s", TMPOUTNAME);
+	    /* outstate.ofp now owns the file descriptor */
+	    outfd = -1;
 	  }
 
 	/* find out where all the lines are */
@@ -344,16 +366,18 @@ main (int argc, char **argv)
 	    if (verbosity != SILENT)
 	      {
 		bool renamed = strcmp (inname, outname);
+		bool skip_rename = ! renamed && pch_rename ();
 
 		say ("%s %s %s%c",
 		     dry_run ? "checking" : "patching",
 		     S_ISLNK (file_type) ? "symbolic link" : "file",
-		     quotearg (outname), renamed ? ' ' : '\n');
-		if (renamed)
-		  say ("(%s from %s)\n",
+		     quotearg (outname), renamed || skip_rename ? ' ' : '\n');
+		if (renamed || skip_rename)
+		  say ("(%s%s from %s)\n",
+		       skip_rename ? "already " : "",
 		       pch_copy () ? "copied" :
 		       (pch_rename () ? "renamed" : "read"),
-		       inname);
+		       ! skip_rename ? inname : pch_name (! strcmp (inname, pch_name (OLD))));
 		if (verbosity == VERBOSE)
 		  say ("Using Plan %s...\n", using_plan_a ? "A" : "B");
 	      }
@@ -443,7 +467,8 @@ main (int argc, char **argv)
 			|| ! where
 			|| ! apply_hunk (&outstate, where))))
 	      {
-		abort_hunk (outname, ! failed, reverse);
+		if (! skip_reject_file)
+		  abort_hunk (outname, ! failed, reverse);
 		failed++;
 		if (verbosity == VERBOSE ||
 		    (! skip_rest_of_patch && verbosity != SILENT))
@@ -519,7 +544,7 @@ main (int argc, char **argv)
 		  mismatch = true;
 		  somefailed = true;
 		  if (verbosity != SILENT)
-		    say ("File %s is not empty after patch; not deleting\n",
+		    say ("Not deleting file %s as content differs from patch\n",
 			 quotearg (outname));
 		}
 
@@ -536,7 +561,7 @@ main (int argc, char **argv)
 		      enum file_attributes attr = 0;
 		      struct timespec new_time = pch_timestamp (! reverse);
 		      mode_t mode = file_type |
-			  ((new_mode ? new_mode : instat.st_mode) & S_IRWXUGO);
+			  ((set_mode ? new_mode : instat.st_mode) & S_IRWXUGO);
 
 		      if ((set_time | set_utc) && new_time.tv_sec != -1)
 			{
@@ -584,7 +609,7 @@ main (int argc, char **argv)
       if (diff_type != ED_DIFF) {
 	struct stat rejst;
 
-	if (failed) {
+	if (failed && ! skip_reject_file) {
 	    if (fstat (fileno (rejfp), &rejst) != 0 || fclose (rejfp) != 0)
 	      write_fatal ();
 	    rejfp = NULL;
@@ -646,8 +671,8 @@ main (int argc, char **argv)
     if (outstate.ofp && (ferror (outstate.ofp) || fclose (outstate.ofp) != 0))
       write_fatal ();
     output_files (NULL);
-    delete_files ();
     cleanup ();
+    delete_files ();
     if (somefailed)
       exit (1);
     return 0;
@@ -762,7 +787,7 @@ static char const *const option_help[] =
 "",
 "  -D NAME  --ifdef=NAME  Make merged if-then-else output using NAME.",
 #ifdef ENABLE_MERGE
-"  -m  --merge  Merge using conflict markers instead of creating reject files.",
+"  --merge  Merge using conflict markers instead of creating reject files.",
 #endif
 "  -E  --remove-empty-files  Remove output files that are empty after patching.",
 "",
@@ -865,7 +890,7 @@ get_some_switches (void)
 	    case 'B':
 		if (!*optarg)
 		  fatal ("backup prefix is empty");
-		origprae = savestr (optarg);
+		origprae = xstrdup (optarg);
 		break;
 	    case 'c':
 		diff_type = CONTEXT_DIFF;
@@ -875,7 +900,7 @@ get_some_switches (void)
 		  pfatal ("Can't change to directory %s", quotearg (optarg));
 		break;
 	    case 'D':
-		do_defines = savestr (optarg);
+		do_defines = xstrdup (optarg);
 		break;
 	    case 'e':
 		diff_type = ED_DIFF;
@@ -893,7 +918,7 @@ get_some_switches (void)
 		patch_get = numeric_string (optarg, true, "get option value");
 		break;
 	    case 'i':
-		patchname = savestr (optarg);
+		patchname = xstrdup (optarg);
 		break;
 	    case 'l':
 		canonicalize = true;
@@ -921,13 +946,13 @@ get_some_switches (void)
 		noreverse = true;
 		break;
 	    case 'o':
-		outfile = savestr (optarg);
+		outfile = xstrdup (optarg);
 		break;
 	    case 'p':
 		strippath = numeric_string (optarg, false, "strip count");
 		break;
 	    case 'r':
-		rejname = savestr (optarg);
+		rejname = xstrdup (optarg);
 		break;
 	    case 'R':
 		reverse = true;
@@ -961,13 +986,13 @@ get_some_switches (void)
 	    case 'Y':
 		if (!*optarg)
 		  fatal ("backup basename prefix is empty");
-		origbase = savestr (optarg);
+		origbase = xstrdup (optarg);
 		break;
 	    case 'z':
 	    case_z:
 		if (!*optarg)
 		  fatal ("backup suffix is empty");
-		origsuff = savestr (optarg);
+		origsuff = xstrdup (optarg);
 		break;
 	    case 'Z':
 		set_utc = true;
@@ -1036,12 +1061,12 @@ get_some_switches (void)
     /* Process any filename args.  */
     if (optind < Argc)
       {
-	inname = savestr (Argv[optind++]);
+	inname = xstrdup (Argv[optind++]);
 	explicit_inname = true;
 	invc = -1;
 	if (optind < Argc)
 	  {
-	    patchname = savestr (Argv[optind++]);
+	    patchname = xstrdup (Argv[optind++]);
 	    if (optind < Argc)
 	      {
 		fprintf (stderr, "%s: %s: extra operand\n",
@@ -1107,8 +1132,8 @@ locate_hunk (lin fuzz)
     lin min_where = last_frozen_line + 1 - (prefix_context - prefix_fuzz);
     lin max_pos_offset = max_where - first_guess;
     lin max_neg_offset = first_guess - min_where;
-    lin max_offset = (max_pos_offset < max_neg_offset
-			  ? max_neg_offset : max_pos_offset);
+    lin max_offset = MAX(max_pos_offset, max_neg_offset);
+    lin min_offset;
 
     if (!pat_lines)			/* null range matches always */
 	return first_guess;
@@ -1154,7 +1179,10 @@ locate_hunk (lin fuzz)
 	  return 0;
       }
 
-    for (offset = 0;  offset <= max_offset;  offset++) {
+    min_offset = max_pos_offset < 0 ? first_guess - max_where
+	       : max_neg_offset < 0 ? first_guess - min_where
+	       : 0;
+    for (offset = min_offset;  offset <= max_offset;  offset++) {
 	char numbuf0[LINENUM_LENGTH_BOUND + 1];
 	char numbuf1[LINENUM_LENGTH_BOUND + 1];
 	if (offset <= max_pos_offset
@@ -1166,7 +1194,7 @@ locate_hunk (lin fuzz)
 	    in_offset += offset;
 	    return first_guess+offset;
 	}
-	if (0 < offset && offset <= max_neg_offset
+	if (offset <= max_neg_offset
 	    && patch_match (first_guess, -offset, prefix_fuzz, suffix_fuzz)) {
 	    if (debug & 1)
 	      say ("Offset changing from %s to %s\n",
@@ -1237,6 +1265,7 @@ abort_hunk_unified (bool header, bool reverse)
   lin old = 1;
   lin lastline = pch_ptrn_lines ();
   lin new = lastline + 1;
+  char const *c_function = pch_c_function();
 
   if (header)
     {
@@ -1251,7 +1280,7 @@ abort_hunk_unified (bool header, bool reverse)
   print_unidiff_range (rejfp, pch_first () + out_offset, lastline);
   fprintf (rejfp, " +");
   print_unidiff_range (rejfp, pch_newfirst () + out_offset, pch_repl_lines ());
-  fprintf (rejfp, " @@\n");
+  fprintf (rejfp, " @@%s\n", c_function ? c_function : "");
 
   while (pch_char (new) == '=' || pch_char (new) == '\n')
     new++;
@@ -1573,6 +1602,8 @@ init_reject (char const *outname)
   int fd;
   fd = make_tempfile (&TMPREJNAME, 'r', outname, O_WRONLY | binary_transput,
 		      0666);
+  if (fd == -1)
+    pfatal ("Can't create temporary file %s", TMPREJNAME);
   TMPREJNAME_needs_removal = true;
   rejfp = fdopen (fd, binary_transput ? "wb" : "w");
   if (! rejfp)
@@ -1909,7 +1940,7 @@ output_files (struct stat const *st)
 		       from_st, file_to_output->to,
 		       file_to_output->mode, file_to_output->backup);
       if (file_to_output->to && from_needs_removal)
-	unlink (file_to_output->from);
+	safe_unlink (file_to_output->from);
 
       if (st && st->st_dev == from_st->st_dev && st->st_ino == from_st->st_ino)
 	{
@@ -1939,7 +1970,7 @@ forget_output_files (void)
     {
       const struct file_to_output *file_to_output = elt;
 
-      unlink (file_to_output->from);
+      safe_unlink (file_to_output->from);
     }
   gl_list_iterator_free (&iter);
   gl_list_clear (files_to_output);
@@ -1963,7 +1994,7 @@ remove_if_needed (char const *name, bool *needs_removal)
 {
   if (*needs_removal)
     {
-      unlink (name);
+      safe_unlink (name);
       *needs_removal = false;
     }
 }

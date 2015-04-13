@@ -1,6 +1,4 @@
 path_max
 558485-backupmode
 m-merge
-#disable-update-version
-add_manpage_time.patch
 patch-bug-1306412.diff

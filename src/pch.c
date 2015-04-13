@@ -25,12 +25,14 @@
 #include <quotearg.h>
 #include <util.h>
 #include <xalloc.h>
+#include <xmemdup0.h>
 #undef XTERN
 #define XTERN
 #include <pch.h>
 #if HAVE_SETMODE_DOS
 # include <io.h>
 #endif
+#include <safe.h>
 
 #define INITHUNKMAX 125			/* initial dynamic allocation size */
 
@@ -136,8 +138,11 @@ open_patch_file (char const *filename)
     else
       {
 	size_t charsread;
-	int fd = make_tempfile (&TMPPATNAME, 'p', NULL, O_RDWR | O_BINARY, 0);
+	int fd;
 	FILE *read_pfp = pfp;
+	fd = make_tempfile (&TMPPATNAME, 'p', NULL, O_RDWR | O_BINARY, 0);
+	if (fd == -1)
+	  pfatal ("Can't create temporary file %s", TMPPATNAME);
 	TMPPATNAME_needs_removal = true;
 	pfp = fdopen (fd, "w+b");
 	if (! pfp)
@@ -157,20 +162,19 @@ open_patch_file (char const *filename)
     if (p_filesize != (file_offset) p_filesize)
       fatal ("patch file is too long");
     next_intuit_at (file_pos, 1);
-    set_hunkmax();
 }
 
 /* Make sure our dynamically realloced tables are malloced to begin with. */
 
-void
+static void
 set_hunkmax (void)
 {
     if (!p_line)
-	p_line = (char **) malloc (hunkmax * sizeof *p_line);
+	p_line = (char **) xmalloc (hunkmax * sizeof *p_line);
     if (!p_len)
-	p_len = (size_t *) malloc (hunkmax * sizeof *p_len);
+	p_len = (size_t *) xmalloc (hunkmax * sizeof *p_len);
     if (!p_Char)
-	p_Char = malloc (hunkmax * sizeof *p_Char);
+	p_Char = xmalloc (hunkmax * sizeof *p_Char);
 }
 
 /* Enlarge the arrays containing the current hunk of patch. */
@@ -291,8 +295,7 @@ there_is_another_patch (bool need_header, mode_t *file_type)
 	t = buf + strlen (buf);
 	if (t > buf + 1 && *(t - 1) == '\n')
 	  {
-	    inname = savebuf (buf, t - buf);
-	    inname[t - buf - 1] = 0;
+	    inname = xmemdup0 (buf, t - buf - 1);
 	    inerrno = stat_file (inname, &instat);
 	    if (inerrno)
 	      {
@@ -387,33 +390,9 @@ skip_hex_digits (char const *str)
   return s == str ? NULL : s;
 }
 
-/* Check if we are in the root of a particular filesystem namespace ("/" on
-   UNIX or a particular drive's root on DOS-like systems).  */
-static bool
-cwd_is_root (char const *name)
-{
-  unsigned int prefix_len = FILE_SYSTEM_PREFIX_LEN (name);
-  char root[prefix_len + 2];
-  struct stat st;
-  dev_t root_dev;
-  ino_t root_ino;
-
-  memcpy (root, name, prefix_len);
-  root[prefix_len] = '/';
-  root[prefix_len + 1] = 0;
-  if (stat (root, &st))
-    return false;
-  root_dev = st.st_dev;
-  root_ino = st.st_ino;
-  if (stat (".", &st))
-    return false;
-  return root_dev == st.st_dev && root_ino == st.st_ino;
-}
-
 static bool
 name_is_valid (char const *name)
 {
-  char const *n;
   int i;
   bool is_valid = true;
 
@@ -425,21 +404,7 @@ name_is_valid (char const *name)
 	return false;
     }
 
-  if (IS_ABSOLUTE_FILE_NAME (name))
-    is_valid = false;
-  else
-    for (n = name; *n; )
-      {
-	if (*n == '.' && *++n == '.' && ( ! *++n || ISSLASH (*n)))
-	  {
-	    is_valid = false;
-	    break;
-	  }
-	while (*n && ! ISSLASH (*n))
-	  n++;
-	while (ISSLASH (*n))
-	  n++;
-      }
+  is_valid = filename_is_safe (name);
 
   /* Allow any filename if we are in the filesystem root.  */
   if (! is_valid && cwd_is_root (name))
@@ -472,6 +437,7 @@ intuit_diff_type (bool need_header, mode_t *p_file_type)
     int version_controlled[3];
     enum diff retval;
     mode_t file_type;
+    size_t indent = 0;
 
     for (i = OLD;  i <= INDEX;  i++)
       if (p_name[i]) {
@@ -518,11 +484,12 @@ intuit_diff_type (bool need_header, mode_t *p_file_type)
 	file_offset previous_line = this_line;
 	bool last_line_was_command = this_is_a_command;
 	bool stars_last_line = stars_this_line;
-	size_t indent = 0;
+	size_t indent_last_line = indent;
 	char ed_command_letter;
 	bool strip_trailing_cr;
 	size_t chars_read;
 
+	indent = 0;
 	this_line = file_tell (pfp);
 	chars_read = pget_line (0, 0, false, false);
 	if (chars_read == (size_t) -1)
@@ -623,7 +590,7 @@ intuit_diff_type (bool need_header, mode_t *p_file_type)
 	    else {
 		char oldc = *t;
 		*t = '\0';
-		revision = savestr (revision);
+		revision = xstrdup (revision);
 		*t = oldc;
 	    }
 	  }
@@ -801,7 +768,8 @@ intuit_diff_type (bool need_header, mode_t *p_file_type)
 	if ((diff_type == NO_DIFF
 	     || diff_type == CONTEXT_DIFF
 	     || diff_type == NEW_CONTEXT_DIFF)
-	    && stars_last_line && strnEQ (s, "*** ", 4)) {
+	    && stars_last_line && indent_last_line == indent
+	    && strnEQ (s, "*** ", 4)) {
 	    s += 4;
 	    if (s[0] == '0' && !ISDIGIT (s[1]))
 	      p_says_nonexistent[OLD] = 1 + ! p_timestamp[OLD].tv_sec;
@@ -1002,6 +970,16 @@ intuit_diff_type (bool need_header, mode_t *p_file_type)
 	  }
       }
 
+    if ((pch_rename () || pch_copy ())
+	&& ! inname
+	&& ! ((i == OLD || i == NEW) &&
+	      p_name[! reverse] &&
+	      name_is_valid (p_name[! reverse])))
+      {
+	say ("Cannot %s file without two valid file names\n", pch_rename () ? "rename" : "copy");
+	skip_rest_of_patch = true;
+      }
+
     if (i == NONE)
       {
 	if (inname)
@@ -1015,7 +993,7 @@ intuit_diff_type (bool need_header, mode_t *p_file_type)
       }
     else
       {
-	inname = savestr(p_name[i]);
+	inname = xstrdup (p_name[i]);
 	inerrno = stat_errno[i];
 	invc = version_controlled[i];
 	instat = st[i];
@@ -1041,7 +1019,7 @@ prefix_components (char *filename, bool checkdirs)
 	  if (checkdirs)
 	    {
 	      *f = '\0';
-	      stat_result = stat (filename, &stat_buf);
+	      stat_result = safe_stat (filename, &stat_buf);
 	      *f = '/';
 	      if (! (stat_result == 0 && S_ISDIR (stat_buf.st_mode)))
 		break;
@@ -1196,6 +1174,8 @@ another_hunk (enum diff difftype, bool rev)
     char numbuf2[LINENUM_LENGTH_BOUND + 1];
     char numbuf3[LINENUM_LENGTH_BOUND + 1];
 
+    set_hunkmax();
+
     while (p_end >= 0) {
 	if (p_end == p_efake)
 	    p_end = p_bfake;		/* don't free twice */
@@ -1255,6 +1235,8 @@ another_hunk (enum diff difftype, bool rev)
 		s++;
 	    *s = '\0';
 	    p_c_function = savestr (p_c_function);
+	    if (! p_c_function)
+	      return -1;
 	  }
 	p_hunk_beg = p_input_line + 1;
 	while (p_end < p_max) {
@@ -1317,6 +1299,8 @@ another_hunk (enum diff difftype, bool rev)
 		      s++;
 		    scan_linenum (s, &p_ptrn_lines);
 		    p_ptrn_lines += 1 - p_first;
+		    if (p_ptrn_lines < 0)
+		      malformed ();
 		}
 		else if (p_first)
 		    p_ptrn_lines = 1;
@@ -1324,6 +1308,9 @@ another_hunk (enum diff difftype, bool rev)
 		    p_ptrn_lines = 0;
 		    p_first = 1;
 		}
+		if (p_first >= LINENUM_MAX - p_ptrn_lines ||
+		    p_ptrn_lines >= LINENUM_MAX - 6)
+		  malformed ();
 		p_max = p_ptrn_lines + 6;	/* we need this much at least */
 		while (p_max + 1 >= hunkmax)
 		    if (! grow_hunkmax ())
@@ -1393,6 +1380,8 @@ another_hunk (enum diff difftype, bool rev)
 		    while (! ISDIGIT (*s));
 		    scan_linenum (s, &p_repl_lines);
 		    p_repl_lines += 1 - p_newfirst;
+		    if (p_repl_lines < 0)
+		      malformed ();
 		  }
 		else if (p_newfirst)
 		  p_repl_lines = 1;
@@ -1401,6 +1390,9 @@ another_hunk (enum diff difftype, bool rev)
 		    p_repl_lines = 0;
 		    p_newfirst = 1;
 		  }
+		if (p_newfirst >= LINENUM_MAX - p_repl_lines ||
+		    p_repl_lines >= LINENUM_MAX - p_end)
+		  malformed ();
 		p_max = p_repl_lines + p_end;
 		while (p_max + 1 >= hunkmax)
 		  if (! grow_hunkmax ())
@@ -1640,6 +1632,8 @@ another_hunk (enum diff difftype, bool rev)
 	    s = scan_linenum (s + 1, &p_ptrn_lines);
 	else
 	    p_ptrn_lines = 1;
+	if (p_first >= LINENUM_MAX - p_ptrn_lines)
+	  malformed ();
 	if (*s == ' ') s++;
 	if (*s != '+')
 	    malformed ();
@@ -1648,21 +1642,27 @@ another_hunk (enum diff difftype, bool rev)
 	    s = scan_linenum (s + 1, &p_repl_lines);
 	else
 	    p_repl_lines = 1;
+	if (p_newfirst >= LINENUM_MAX - p_repl_lines)
+	  malformed ();
 	if (*s == ' ') s++;
 	if (*s++ != '@')
 	    malformed ();
-	if (*s++ == '@' && *s == ' ' && *s != '\0')
+	if (*s++ == '@' && *s == ' ')
 	  {
 	    p_c_function = s;
 	    while (*s != '\n')
 		s++;
 	    *s = '\0';
 	    p_c_function = savestr (p_c_function);
+	    if (! p_c_function)
+	      return -1;
 	  }
 	if (!p_ptrn_lines)
 	    p_first++;			/* do append rather than insert */
 	if (!p_repl_lines)
 	    p_newfirst++;
+	if (p_ptrn_lines >= LINENUM_MAX - (p_repl_lines + 1))
+	  malformed ();
 	p_max = p_ptrn_lines + p_repl_lines + 1;
 	while (p_max + 1 >= hunkmax)
 	    if (! grow_hunkmax ())
@@ -1799,6 +1799,8 @@ another_hunk (enum diff difftype, bool rev)
 	}
 	else
 	    p_ptrn_lines = (*s != 'a');
+	if (p_first >= LINENUM_MAX - p_ptrn_lines)
+	  malformed ();
 	hunk_type = *s;
 	if (hunk_type == 'a')
 	    p_first++;			/* do append rather than insert */
@@ -1807,17 +1809,23 @@ another_hunk (enum diff difftype, bool rev)
 	    scan_linenum (s + 1, &max);
 	else
 	    max = min;
+	if (min > max || max - min == LINENUM_MAX)
+	  malformed ();
 	if (hunk_type == 'd')
 	    min++;
-	p_end = p_ptrn_lines + 1 + max - min + 1;
+	p_newfirst = min;
+	p_repl_lines = max - min + 1;
+	if (p_newfirst >= LINENUM_MAX - p_repl_lines)
+	  malformed ();
+	if (p_ptrn_lines >= LINENUM_MAX - (p_repl_lines + 1))
+	  malformed ();
+	p_end = p_ptrn_lines + p_repl_lines + 1;
 	while (p_end + 1 >= hunkmax)
 	  if (! grow_hunkmax ())
 	    {
 	      p_end = -1;
 	      return -1;
 	    }
-	p_newfirst = min;
-	p_repl_lines = max - min + 1;
 	sprintf (buf, "*** %s,%s\n",
 		 format_linenum (numbuf0, p_first),
 		 format_linenum (numbuf1, p_first + p_ptrn_lines - 1));
@@ -2172,14 +2180,12 @@ pch_name (enum nametype type)
 
 bool pch_copy (void)
 {
-  return p_copy[OLD] && p_copy[NEW]
-	 && p_name[OLD] && p_name[NEW];
+  return p_copy[OLD] && p_copy[NEW];
 }
 
 bool pch_rename (void)
 {
-  return p_rename[OLD] && p_rename[NEW]
-	 && p_name[OLD] && p_name[NEW];
+  return p_rename[OLD] && p_rename[NEW];
 }
 
 /* Return the specified line position in the old file of the old context. */
