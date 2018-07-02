@@ -2,3 +2,5 @@ path_max
 558485-backupmode
 m-merge
 patch-bug-1306412.diff
+Fix_arbitrary_command_execution_in_ed-style_patches.patch
+Fix_ed-style_test_failure.patch
